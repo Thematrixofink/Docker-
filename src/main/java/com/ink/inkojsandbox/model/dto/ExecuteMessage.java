@@ -16,4 +16,6 @@ public class ExecuteMessage {
      * 错误输出信息
      */
     private String errorMessage;
+
+    private Long time;
 }

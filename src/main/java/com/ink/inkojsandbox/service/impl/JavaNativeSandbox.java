@@ -1,10 +1,13 @@
 package com.ink.inkojsandbox.service.impl;
 
+import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
 import com.ink.inkojsandbox.Utils.ProcessUtils;
 import com.ink.inkojsandbox.model.dto.ExecuteCodeRequest;
 import com.ink.inkojsandbox.model.dto.ExecuteCodeResponse;
 import com.ink.inkojsandbox.model.dto.ExecuteMessage;
+import com.ink.inkojsandbox.model.dto.JudgeInfo;
 import com.ink.inkojsandbox.service.CodeSandbox;
 
 import java.io.BufferedReader;
@@ -73,29 +76,78 @@ public class JavaNativeSandbox implements CodeSandbox {
         //2.编译代码，得到Class文件
         String compileCmd = String.format("javac -encoding utf-8 %s",userCodeFile.getAbsolutePath());
         //执行编译程序
-        Process compileProcess = null;
+        Process compileProcess;
         try {
             compileProcess = Runtime.getRuntime().exec(compileCmd);
         } catch (IOException e) {
-            throw new RuntimeException(e);
+            return getErrorResponse(e);
         }
         //获取编译的信息
         ExecuteMessage compileProcessMessage = ProcessUtils.getRunProcessMessage(compileProcess,"编译");
         System.out.println(compileProcessMessage);
 
         //3.执行代码,获取执行信息
-        ExecuteMessage runClassProcessMessage;
+        List<ExecuteMessage> runClassProcessMessage = new ArrayList<>();
         for(String inputArgs : inputList){
             String runCmd = String.format("java -Dfile.encoding=UTF-8 -cp %s Solution %s",userCodeParentPath,inputArgs);
             try {
                 Process runClassCmd = Runtime.getRuntime().exec(runCmd);
-                 runClassProcessMessage = ProcessUtils.getRunProcessMessage(runClassCmd,"运行");
+                runClassProcessMessage.add(ProcessUtils.getRunProcessMessage(runClassCmd,"运行"));
                 System.out.println(runClassProcessMessage);
             } catch (IOException e) {
-                throw new RuntimeException(e);
+                return getErrorResponse(e);
             }
         }
 
-        return null;
+        //4.整理输出
+        //4.1 获取输出
+        ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
+        List<String> outputList = new ArrayList<>();
+        //todo 设置judgeinfo的内容
+        //取时采用最大值，便于判断师是否超时
+        long maxRunCodeTime = 0;
+        JudgeInfo judgeInfo = new JudgeInfo();
+        for (ExecuteMessage executeMessage : runClassProcessMessage) {
+            //如果错误信息不为空，那么直接把错误结果返回去，输出
+            String errorMessage = executeMessage.getErrorMessage();
+            if(StrUtil.isNotBlank(errorMessage)){
+                executeCodeResponse.setMessage(errorMessage);
+                executeCodeResponse.setStatus(3);
+                break;
+            }
+            //没有错误信息时
+            //获取运行最长时间
+            Long thisCodeTime = executeMessage.getTime();
+            if(thisCodeTime > maxRunCodeTime){
+                maxRunCodeTime = thisCodeTime;
+            }
+            outputList.add(executeMessage.getNormalMessage());
+            executeCodeResponse.setStatus(1);
+        }
+        judgeInfo.setTime(maxRunCodeTime);
+        executeCodeResponse.setOutputList(outputList);
+        executeCodeResponse.setJudgeInfo(judgeInfo);
+
+        //5.文件清理,如果文件夹不为空，那么就把整个文件夹删除
+        if(userCodeFile.getParentFile() != null){
+            boolean del = FileUtil.del(userCodeParentPath);
+            if(del) { System.out.println("删除用户代码文件夹成功!");}
+            else    { System.out.println("删除用户代码文件夹失败!");}
+        }
+        return executeCodeResponse;
+    }
+
+    /**
+     * 获取错误响应
+     * @param e
+     * @return
+     */
+    private ExecuteCodeResponse getErrorResponse(Exception e){
+        ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
+        executeCodeResponse.setOutputList(new ArrayList<>());
+        executeCodeResponse.setMessage(e.getMessage());
+        executeCodeResponse.setStatus(2);
+        executeCodeResponse.setJudgeInfo(new JudgeInfo());
+        return executeCodeResponse;
     }
 }
