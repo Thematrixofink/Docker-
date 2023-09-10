@@ -37,10 +37,9 @@ public class ProcessUtils {
                 normalReader.close();
             } else {
                 //失败
-                System.out.println(opName+"失败" + exitNum);
+                System.out.println(opName+"失败!  进程运行状态码:" + exitNum);
                 //获取进程的输出
                 BufferedReader normalReader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-                ;
                 String compileLineMessage;
                 StringBuilder normalMessageBuilder = new StringBuilder();
                 while ((compileLineMessage = normalReader.readLine()) != null) {

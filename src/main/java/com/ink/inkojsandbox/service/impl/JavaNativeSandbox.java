@@ -3,11 +3,14 @@ package com.ink.inkojsandbox.service.impl;
 import cn.hutool.core.date.StopWatch;
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.dfa.FoundWord;
+import cn.hutool.dfa.WordTree;
 import com.ink.inkojsandbox.Utils.ProcessUtils;
 import com.ink.inkojsandbox.model.dto.ExecuteCodeRequest;
 import com.ink.inkojsandbox.model.dto.ExecuteCodeResponse;
 import com.ink.inkojsandbox.model.dto.ExecuteMessage;
 import com.ink.inkojsandbox.model.dto.JudgeInfo;
+import com.ink.inkojsandbox.security.DefaultSecurityManager;
 import com.ink.inkojsandbox.service.CodeSandbox;
 
 import java.io.BufferedReader;
@@ -16,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,13 +28,20 @@ import java.util.UUID;
  */
 public class JavaNativeSandbox implements CodeSandbox {
 
+    //测试以下
     public static void main(String[] args) {
         JavaNativeSandbox javaNativeSandbox = new JavaNativeSandbox();
         ExecuteCodeRequest codeRequest = new ExecuteCodeRequest();
-        codeRequest.setCode("public class Soluton {\n" +
+        codeRequest.setCode("public class Solution {\n" +
                 "    public static void main(String[] args) {\n" +
                 "        int a = Integer.parseInt(args[0]);\n" +
                 "        int b = Integer.parseInt(args[1]);\n" +
+                "        try {\n" +
+                "            Thread.sleep(1000000L);\n" +
+                "        } catch (InterruptedException e) {\n" +
+                "            throw new RuntimeException(e);\n" +
+                "        }\n" +
+                "        System.out.println(\"exec\");\n" +
                 "        System.out.println(a+b);\n" +
                 "    }\n" +
                 "}");
@@ -39,22 +50,40 @@ public class JavaNativeSandbox implements CodeSandbox {
         input.add("2 2");
         codeRequest.setInput(input);
         codeRequest.setLanguage("java");
-
         javaNativeSandbox.executeCode(codeRequest);
     }
 
+    //代码临时存放文件夹名字
     private static final String GLOBAL_CODE_DIR_NAME = "tempCode";
-
+    //代码统一类名
     private static final String GLOBAL_CODE_CLASS_NAME = "Solution.java";
+    //超时时间
+    private static final long TIME_OUT = 5000L;
+    //黑名单代码目录
+    private static final List<String> blackList = Arrays.asList("exec","Files");
 
+    private static final WordTree WORD_TREE;
+
+    static{
+        WORD_TREE = new WordTree();
+        WORD_TREE.addWords(blackList);
+    }
     @Override
     public ExecuteCodeResponse executeCode(ExecuteCodeRequest executeCodeRequest) {
+        System.setSecurityManager(new DefaultSecurityManager());
+
         //传过来的所有参数
         String code = executeCodeRequest.getCode();             //用户的代码
         List<String> inputList = executeCodeRequest.getInput(); //用户的输入
         //todo 根据不同的语言进行不同的操作，下面默认为java
         String language = executeCodeRequest.getLanguage();     //用户代码的语言
 
+        //校验是否存在非法代码
+        FoundWord foundWord = WORD_TREE.matchWord(code);
+        if(foundWord != null){
+            System.out.println("包含敏感词:" + foundWord.getFoundWord());
+            return null;
+        }
 
         //1.把用户的代码保存为Solution.java 文件
         //获取当前用户的工作目录
@@ -84,16 +113,32 @@ public class JavaNativeSandbox implements CodeSandbox {
         }
         //获取编译的信息
         ExecuteMessage compileProcessMessage = ProcessUtils.getRunProcessMessage(compileProcess,"编译");
+        System.out.println("===================代码编译信息====================");
         System.out.println(compileProcessMessage);
+        System.out.println("=================================================\n");
 
         //3.执行代码,获取执行信息
         List<ExecuteMessage> runClassProcessMessage = new ArrayList<>();
         for(String inputArgs : inputList){
-            String runCmd = String.format("java -Dfile.encoding=UTF-8 -cp %s Solution %s",userCodeParentPath,inputArgs);
+            String runCmd = String.format("java -Xmx256m -Dfile.encoding=UTF-8 -cp %s Solution %s",userCodeParentPath,inputArgs);
             try {
                 Process runClassCmd = Runtime.getRuntime().exec(runCmd);
-                runClassProcessMessage.add(ProcessUtils.getRunProcessMessage(runClassCmd,"运行"));
-                System.out.println(runClassProcessMessage);
+                //创建一个线程，如果睡醒了,还没执行完，就给他结束了
+                new Thread(()->{
+                    try {
+                        Thread.sleep(TIME_OUT);
+                        System.out.println("运行超时！");
+                        runClassCmd.destroy();
+                    } catch (InterruptedException e) {
+                        throw new RuntimeException(e);
+                    }
+                }).start();
+
+                ExecuteMessage runProcessMessage = ProcessUtils.getRunProcessMessage(runClassCmd, "运行");
+                runClassProcessMessage.add(runProcessMessage);
+                System.out.println("===================代码运行信息====================");
+                System.out.println(runProcessMessage);
+                System.out.println("================================================\n");
             } catch (IOException e) {
                 return getErrorResponse(e);
             }
