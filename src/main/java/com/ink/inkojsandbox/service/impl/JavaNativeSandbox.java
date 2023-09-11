@@ -70,7 +70,6 @@ public class JavaNativeSandbox implements CodeSandbox {
     }
     @Override
     public ExecuteCodeResponse executeCode(ExecuteCodeRequest executeCodeRequest) {
-        System.setSecurityManager(new DefaultSecurityManager());
 
         //传过来的所有参数
         String code = executeCodeRequest.getCode();             //用户的代码
