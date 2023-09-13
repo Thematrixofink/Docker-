@@ -12,6 +12,8 @@ import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DockerClientBuilder;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
+import com.github.dockerjava.core.command.RemoveContainerCmdImpl;
+import com.github.dockerjava.core.command.StopContainerCmdImpl;
 import com.ink.inkojsandbox.Utils.ProcessUtils;
 import com.ink.inkojsandbox.model.dto.ExecuteCodeRequest;
 import com.ink.inkojsandbox.model.dto.ExecuteCodeResponse;
@@ -37,18 +39,12 @@ public class JavaDockerSandbox implements CodeSandbox {
 
     //测试以下
     public static void main(String[] args) {
-        JavaNativeSandbox javaNativeSandbox = new JavaNativeSandbox();
+        JavaDockerSandbox javaDockerSandbox = new JavaDockerSandbox();
         ExecuteCodeRequest codeRequest = new ExecuteCodeRequest();
         codeRequest.setCode("public class Solution {\n" +
                 "    public static void main(String[] args) {\n" +
                 "        int a = Integer.parseInt(args[0]);\n" +
                 "        int b = Integer.parseInt(args[1]);\n" +
-                "        try {\n" +
-                "            Thread.sleep(1000000L);\n" +
-                "        } catch (InterruptedException e) {\n" +
-                "            throw new RuntimeException(e);\n" +
-                "        }\n" +
-                "        System.out.println(\"exec\");\n" +
                 "        System.out.println(a+b);\n" +
                 "    }\n" +
                 "}");
@@ -57,7 +53,7 @@ public class JavaDockerSandbox implements CodeSandbox {
         input.add("2 2");
         codeRequest.setInput(input);
         codeRequest.setLanguage("java");
-        javaNativeSandbox.executeCode(codeRequest);
+        javaDockerSandbox.executeCode(codeRequest);
     }
 
     //代码临时存放文件夹名字
@@ -67,11 +63,11 @@ public class JavaDockerSandbox implements CodeSandbox {
     //超时时间
     private static final long TIME_OUT = 5000L;
     //黑名单代码目录
-    private static final List<String> blackList = Arrays.asList("exec", "Files");
+    private static final List<String> blackList = Arrays.asList("exec", "Files","File");
 
     private static final WordTree WORD_TREE;
 
-    private static final Boolean FIRST_RUN = true;
+    private static Boolean FIRST_RUN = true;
 
     static {
         WORD_TREE = new WordTree();
@@ -91,7 +87,12 @@ public class JavaDockerSandbox implements CodeSandbox {
         FoundWord foundWord = WORD_TREE.matchWord(code);
         if (foundWord != null) {
             System.out.println("包含敏感词:" + foundWord.getFoundWord());
-            return null;
+            ExecuteCodeResponse response = new ExecuteCodeResponse();
+            response.setOutputList(null);
+            response.setMessage("包含敏感词:" + foundWord.getFoundWord());
+            response.setStatus(3);
+            response.setJudgeInfo(null);
+            return response;
         }
 
         //1.把用户的代码保存为Solution.java 文件
@@ -136,17 +137,20 @@ public class JavaDockerSandbox implements CodeSandbox {
                 @Override
                 public void onNext(PullResponseItem item) {
                     System.out.println("下载镜像:" + item.getStatus());
+                    FIRST_RUN = false;
                     super.onNext(item);
                 }
             };
             try {
                 pullImageCmd.exec(pullImageResultCallback).awaitCompletion();
+                System.out.println("下载镜像完成");
+                pullImageCmd.close();
             } catch (InterruptedException e) {
                 System.out.println("拉取镜像失败!");
+                pullImageCmd.close();
                 throw new RuntimeException(e);
             }
         }
-        System.out.println("下载镜像完成");
         //创建容器
         HostConfig hostConfig = new HostConfig();
         //创建容器时，可以指定文件路径，将本地的文件同步到容器中，可以让容器访问（数据卷)
@@ -156,7 +160,7 @@ public class JavaDockerSandbox implements CodeSandbox {
         hostConfig.withMemorySwap(0L);
 
         //todo 完善配置参数
-        hostConfig.withSecurityOpts(Arrays.asList("seccomp=安全管理配置字符串"));
+        //hostConfig.withSecurityOpts(Arrays.asList("seccomp=安全管理配置字符串"));
 
         CreateContainerCmd createContainerCmd = dockerClient.createContainerCmd(image);
         CreateContainerResponse createContainerResponse = createContainerCmd
@@ -172,6 +176,7 @@ public class JavaDockerSandbox implements CodeSandbox {
         System.out.println(createContainerResponse);
         String containerId = createContainerResponse.getId();
         System.out.println("创建容器成功,ID为:" + containerId);
+        createContainerCmd.close();
 
 
         //启动容器
@@ -247,6 +252,7 @@ public class JavaDockerSandbox implements CodeSandbox {
             });
             statsCmd.exec(statisticsResultCallback);
             statsCmd.close();
+
             try {
                 stopWatch.start();
                 dockerClient.execStartCmd(executeId)
@@ -256,6 +262,8 @@ public class JavaDockerSandbox implements CodeSandbox {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
+
+
             long thisCodeTime = stopWatch.getLastTaskTimeMillis();
             executeMessage.setErrorMessage(errorMessage[0]);
             executeMessage.setNormalMessage(normalMessage[0]);
@@ -263,6 +271,14 @@ public class JavaDockerSandbox implements CodeSandbox {
             executeMessage.setMemory(maxMemory[0]);
             runClassProcessMessage.add(executeMessage);
         }
+
+        //这里直接杀死
+        KillContainerCmd killContainerCmd = dockerClient.killContainerCmd(containerId);
+        killContainerCmd.exec();
+        System.out.println("关闭容器成功!");
+        RemoveContainerCmd removeContainerCmd = dockerClient.removeContainerCmd(containerId);
+        removeContainerCmd.exec();
+        System.out.println("删除容器成功!");
 
         //整理文件输出
         ExecuteCodeResponse executeCodeResponse = new ExecuteCodeResponse();
@@ -307,6 +323,7 @@ public class JavaDockerSandbox implements CodeSandbox {
             if(del) { System.out.println("删除用户代码文件夹成功!");}
             else    { System.out.println("删除用户代码文件夹失败!");}
         }
+
 
 
         return executeCodeResponse;
