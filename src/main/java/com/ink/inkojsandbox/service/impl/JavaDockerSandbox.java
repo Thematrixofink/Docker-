@@ -14,6 +14,8 @@ import com.ink.inkojsandbox.model.dto.ExecuteMessage;
 import com.ink.inkojsandbox.model.dto.JudgeInfo;
 import com.ink.inkojsandbox.model.enums.JudgeInfoEnum;
 import com.ink.inkojsandbox.template.JavaCodeSandboxTemplate;
+import org.springframework.context.annotation.Bean;
+import org.springframework.stereotype.Component;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -24,6 +26,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * Java控制docker实现代码沙箱
  */
+@Component
 public class JavaDockerSandbox extends JavaCodeSandboxTemplate {
 
 
