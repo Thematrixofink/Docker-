@@ -12,8 +12,6 @@ import com.github.dockerjava.api.command.*;
 import com.github.dockerjava.api.model.*;
 import com.github.dockerjava.core.DockerClientBuilder;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
-import com.github.dockerjava.core.command.RemoveContainerCmdImpl;
-import com.github.dockerjava.core.command.StopContainerCmdImpl;
 import com.ink.inkojsandbox.Utils.ProcessUtils;
 import com.ink.inkojsandbox.model.dto.ExecuteCodeRequest;
 import com.ink.inkojsandbox.model.dto.ExecuteCodeResponse;
@@ -199,6 +197,8 @@ public class JavaDockerSandbox implements CodeSandbox {
             final String[] normalMessage = {null};
             final String[] errorMessage = {null};
             String executeId = execCreateCmdResponse.getId();
+
+            //定义callback，定义输出结果的去向
             ExecStartResultCallback executeStartResultCallback = new ExecStartResultCallback(){
                 //如果TIME_OUT时间内执行完毕，就会执行这个方法，把是否超时变量设置为flase
                 @Override
@@ -223,6 +223,8 @@ public class JavaDockerSandbox implements CodeSandbox {
             };
             final long[] maxMemory = {0L};
             StatsCmd statsCmd = dockerClient.statsCmd(containerId);
+
+            //进行内存检测
             ResultCallback<Statistics> statisticsResultCallback = statsCmd.exec(new ResultCallback<Statistics>() {
                 @Override
                 public void onNext(Statistics statistics) {
@@ -253,6 +255,7 @@ public class JavaDockerSandbox implements CodeSandbox {
             statsCmd.exec(statisticsResultCallback);
             statsCmd.close();
 
+            //执行代码
             try {
                 stopWatch.start();
                 dockerClient.execStartCmd(executeId)
@@ -263,7 +266,7 @@ public class JavaDockerSandbox implements CodeSandbox {
                 throw new RuntimeException(e);
             }
 
-
+            //获取输出结果
             long thisCodeTime = stopWatch.getLastTaskTimeMillis();
             executeMessage.setErrorMessage(errorMessage[0]);
             executeMessage.setNormalMessage(normalMessage[0]);
