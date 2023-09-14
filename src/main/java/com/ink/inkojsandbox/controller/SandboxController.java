@@ -8,9 +8,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 @RestController("/")
 public class SandboxController {
+
+    private static final String AUTH_REQUEST_HEADER = "auth";
+
+    private static final String AUTH_REQUEST_SECRET_KEY = "secret";
     @Resource
     private JavaNativeSandbox javaNativeSandbox;
 
@@ -21,11 +27,19 @@ public class SandboxController {
      * @return 返回执行的结果
      */
     @PostMapping("/executeCode")
-    ExecuteCodeResponse executeCode(@RequestBody ExecuteCodeRequest executeCodeRequest){
+    ExecuteCodeResponse executeCode(@RequestBody ExecuteCodeRequest executeCodeRequest, HttpServletRequest httpServletRequest,
+                                    HttpServletResponse httpServletResponse){
+        //进行基本的认证
+        String authHeader = httpServletRequest.getHeader(AUTH_REQUEST_HEADER);
+        if(!authHeader.equals(AUTH_REQUEST_SECRET_KEY)){
+            httpServletResponse.setStatus(403);
+            return null;
+        }
         if(executeCodeRequest == null) {
             throw new RuntimeException("请求参数为空!");
         }
-        return javaNativeSandbox.executeCode(executeCodeRequest);
+        ExecuteCodeResponse response = javaNativeSandbox.executeCode(executeCodeRequest);
+        return response;
     }
 
 }
